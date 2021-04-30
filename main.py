@@ -4,10 +4,12 @@ import requests
 import json
 import discord
 from dotenv import load_dotenv
-from discord.ext import tasks, commands
+from discord.ext import commands
 from keep_online import keep_online
-from PIL import Image
+from PIL import Image, ImageFont, ImageDraw
 from io import BytesIO
+import numpy as np
+
 
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
@@ -18,7 +20,20 @@ client = commands.Bot(command_prefix='$', help_command=None, intents=intents)
 
 quotes_channel = 812474792103903283
 tasks_channel = 812474792103903282
-quotes_channel2 = 837419156805648404
+
+def mask_circle_transparent(data, size):
+    profile_picture = Image.open(data).convert("RGB")
+    profile_picture = profile_picture.resize(size)
+    npImage = np.array(profile_picture)
+
+    mask = Image.new("L", size, 0)
+    draw = ImageDraw.Draw(mask)
+    draw.pieslice([0, 0, size], 0, 360, fill=255)
+
+    npAlpha=np.array(mask)
+    npImage = np.dstack((npImage, npAlpha))
+    Image.fromarray(npImage).save('pfp.png')
+    return;
 
 def get_quote():
     response = requests.get\
@@ -32,14 +47,16 @@ async def on_ready():
     print('Bot is ready.')
 
 @client.command()
+@commands.has_role('chicken')
 async def classprofile(ctx, role: discord.Role = None):
     if role is None:
         role = 'bme25'
     template = Image.open("bme25.png")
     row = 0
     column = 0
-    x_coordinate = 392
-    y_coordinate = 900
+    x_coordinate = 350
+    y_coordinate = 1200
+    size = (450, 450)
 
     # Going through server members to add the profile pictures of BME students into list
     for guild in client.guilds:
@@ -47,36 +64,41 @@ async def classprofile(ctx, role: discord.Role = None):
             if role in member.roles: #role.id:
                 asset = member.avatar_url_as(format="png", size=256)
                 data = BytesIO(await asset.read())
-                profile_picture = Image.open(data)
-                profile_picture = profile_picture.resize((400, 400))
+                mask_circle_transparent(data, size)
+                edited_asset = Image.open("pfp.png")
+
+                font = ImageFont.truetype("simplifica.ttf", 100)
+                name = member.display_name
+                name_pixel_length = len(name)
 
                 #pasting photos into template
-                template.paste(profile_picture, (x_coordinate, y_coordinate))
+                drawn_template = ImageDraw.Draw(template)
+                drawn_template.text((x_coordinate + (225-name_pixel_length*13), y_coordinate + 500), str(name), font=font)
+                template.paste(edited_asset, (x_coordinate, y_coordinate), edited_asset)
                 if column == 9:
                     row += 1
                     column = 0
-                    y_coordinate += 792
-                    x_coordinate = 392
+                    y_coordinate += 800
+                    x_coordinate = 350
                 else:
                     column += 1
-                    x_coordinate += 792
+                    x_coordinate += 800
 
-        template.save("BME25ClassProfile.png")
-        await ctx.send(file=discord.File("BME25ClassProfile.png"))
+    template = template.resize((4350, 5630), Image.ANTIALIAS)
+    template.save("BME25ClassProfile.png", optimize=True)
+    channel = client.get_channel(709904167912865873)
+    await ctx.send(file=discord.File("BME25ClassProfile.png"))
 
 @client.event
 async def on_message(message):
-  if message.guild.id != 812474791670972416:
-    return
-  else:
-    if message.author == client.user and message.channel==client.get_channel(tasks_channel):
-        await message.add_reaction('✅')
-        return
-    if message.content.startswith('T:'):
-        await client.get_channel(tasks_channel).send('%s' % message.content)
-    elif message.content.startswith('*inspire'):
-        quote = get_quote()
-        await client.get_channel(quotes_channel).send(quote)
+  if message.author == client.user and message.channel==client.get_channel(tasks_channel):
+      await message.add_reaction('✅')
+      return
+  if message.content.startswith('T:'):
+      await client.get_channel(tasks_channel).send('%s' % message.content)
+  elif message.content.startswith('*inspire'):
+      quote = get_quote()
+      await client.get_channel(quotes_channel).send(quote)
   await client.process_commands(message)
 
 @client.event
